@@ -21,5 +21,7 @@ module.exports = {
     '@typescript-eslint/explicit-function-return-type': 'off',
     '@typescript-eslint/explicit-module-boundary-types': 'off',
     '@typescript-eslint/no-explicit-any': 'off',
+    "prettier/prettier": ["error", { "endOfLine": "auto" }] 
+    // Reason: the rason of adding the above config is "Delete ␍eslint(prettier/prettier)" happens because of line-ending differences. ␍ refers to Carriage Return (CR), which is used in Windows (CRLF - \r\n). ESLint and Prettier are likely enforcing LF (\n) line endings instead.
   },
 };
