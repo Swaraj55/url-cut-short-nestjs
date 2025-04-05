@@ -1,14 +1,15 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  ObjectId,
+  ObjectIdColumn,
 } from 'typeorm';
 
 @Entity() // Ensure this is a TypeORM entity
 export class User {
-  @PrimaryGeneratedColumn('uuid')
-  _id: string;
+  @ObjectIdColumn()
+  _id: ObjectId;
 
   @Column({ unique: true })
   username: string;

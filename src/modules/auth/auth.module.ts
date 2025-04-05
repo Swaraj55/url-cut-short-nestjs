@@ -11,6 +11,10 @@ import { GoogleStrategy } from './google.strategy';
 import { MicrosoftStrategy } from './microsoft.strategy';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TwitterStrategy } from './twitter.startegy';
+import { EmailService } from 'src/shared/services/email.service';
+import { MfaModule } from '../mfa/mfa.module';
+import { MailerModule } from '@nestjs-modules/mailer';
+import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
 
 @Module({
   imports: [
@@ -25,6 +29,27 @@ import { TwitterStrategy } from './twitter.startegy';
         signOptions: { expiresIn: '15m' },
       }),
     }),
+    MfaModule,
+    MailerModule.forRoot({
+      transport: {
+        host: process.env.SMTP_HOST,
+        port: Number(process.env.SMTP_PORT),
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        },
+      },
+      defaults: {
+        from: '"Your App" <no-reply@yourapp.com>',
+      },
+      template: {
+        dir: process.cwd() + '/src/shared/templates',
+        adapter: new HandlebarsAdapter(), // make sure you have this imported
+        options: {
+          strict: true,
+        },
+      },
+    }),
   ],
   providers: [
     AuthService,
@@ -34,6 +59,7 @@ import { TwitterStrategy } from './twitter.startegy';
     GoogleStrategy,
     MicrosoftStrategy,
     TwitterStrategy,
+    EmailService,
   ],
   controllers: [AuthController],
   exports: [AuthService],
