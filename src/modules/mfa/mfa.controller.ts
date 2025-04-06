@@ -42,7 +42,7 @@ export class MfaController {
     // 🔁 Reset if previous MFA setup was incomplete with different type
     if (
       user.mfa_details?.mfa_status === 'disabled' &&
-      user.mfa_details?.mfa_state === 'pending' &&
+      user.mfa_details?.mfa_state === 'unenrolled' &&
       user.mfa_details?.mfa_type !== mfa_type
     ) {
       await this.userService.updateMfaDetails(user._id.toString(), {
@@ -67,7 +67,7 @@ export class MfaController {
 
       await this.userService.updateMfaDetails(user._id.toString(), {
         mfa_status: 'disabled',
-        mfa_state: 'pending',
+        mfa_state: 'unenrolled',
         mfa_type: 'TOTP',
         secret: {
           ascii: secret.ascii,
@@ -92,7 +92,7 @@ export class MfaController {
 
       await this.userService.updateMfaDetails(user._id.toString(), {
         mfa_status: 'disabled',
-        mfa_state: 'pending',
+        mfa_state: 'unenrolled',
         mfa_type: 'EMAIL',
         secret: {
           ascii: secret.ascii,
@@ -124,32 +124,6 @@ export class MfaController {
     throw new BadRequestException('Unsupported MFA type');
   }
 
-  @Post('verify')
-  @UseGuards(JwtAuthGuard)
-  async verifyMfa(@Req() req, @Body() { code }: { code: string }) {
-    const user = await this.userService.findById(req.user.userId);
-    const secret = user?.mfa_details?.secret;
-
-    if (!user || !secret) throw new Error('MFA not enabled');
-
-    let isValid = false;
-
-    if (user.mfa_details.mfa_type === 'TOTP') {
-      isValid = this.mfaService.verifyTOTPCode(secret.base32, code);
-    } else if (user.mfa_details.mfa_type === 'EMAIL') {
-      isValid = this.mfaService.verifyTOTPCode(secret.base32, code);
-    }
-
-    if (!isValid) throw new Error('Invalid code');
-
-    await this.userService.updateMfaDetails(user._id.toString(), {
-      mfa_status: 'enabled',
-      mfa_state: 'enrolled',
-    });
-
-    return { message: 'MFA verified successfully' };
-  }
-
   @Post('disable')
   @UseGuards(JwtAuthGuard)
   async disableMfa(@Req() req) {
@@ -160,6 +134,10 @@ export class MfaController {
       secret: null,
     });
 
-    return { message: 'MFA disabled' };
+    return {
+      status: 'MFA_DISABLED',
+      message:
+        'Multi-Factor Authentication has been successfully disabled for your account.',
+    };
   }
 }

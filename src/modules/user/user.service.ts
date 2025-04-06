@@ -29,10 +29,10 @@ export class UserService {
   async createUser(registerDto: RegisterDto): Promise<User> {
     try {
       const newUser = this.userRepository.create(registerDto);
+      console.log('New USer', newUser);
       return await this.userRepository.save(newUser);
     } catch (error) {
       // MongoDB duplicate key error
-      console.log(error);
       if (error.code === 11000) {
         throw new ConflictException(
           'User with this email or username already exists.',

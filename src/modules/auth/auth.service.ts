@@ -48,9 +48,8 @@ export class AuthService {
     const mfaType = mfa?.mfa_type;
     const mfaState = mfa?.mfa_state;
     const mfaSecret = mfa?.secret;
-
     // 1. MFA not enabled → Login directly
-    if (!mfa || mfa.mfa_status !== 'enabled') {
+    if (!mfa || (!mfaType && !mfaState)) {
       return this.generateAndReturnTokens(user);
     }
 
@@ -91,7 +90,7 @@ export class AuthService {
         };
       }
 
-      if (mfaType === 'Email') {
+      if (mfaType === 'EMAIL') {
         const code = this.mfaService.generateEmailToken(updatedSecret.base32);
         await this.emailService.sendTwoFactorCode(
           user.email,
@@ -114,13 +113,22 @@ export class AuthService {
         mfaCode,
       );
       if (!isVerified) {
-        throw new UnauthorizedException(
-          'The MFA verification code is incorrect.',
-        );
+        let errorMessage =
+          'The verification code you entered is incorrect or has expired. Please check the code and try again.';
+        if (user.mfa_details.mfa_type === 'EMAIL') {
+          errorMessage =
+            'The code sent to your email is incorrect or has expired. Please check your inbox and try again.';
+        }
+
+        throw new UnauthorizedException({
+          status: 'MFA_VERIFICATION_FAILED',
+          message: errorMessage,
+        });
       }
 
       await this.userService.updateMfaDetails(user._id.toString(), {
         ...mfa,
+        mfa_status: 'enabled',
         mfa_state: 'enrolled',
       });
 
@@ -128,39 +136,61 @@ export class AuthService {
         status: 'MFA_ENROLLMENT_COMPLETE',
         message:
           'Multi-factor authentication has been successfully set up. Please log in again to continue.',
+        nextStep: 'LOGIN_VERIFICATION_REQUIRED',
       };
     }
 
-    // 4. MFA enrolled but no code provided → Prompt user for code
-    if (mfaState === 'enrolled' && !mfaCode) {
-      if (mfaType === 'Email') {
-        const code = this.mfaService.generateEmailToken(mfaSecret.base32);
-        await this.emailService.sendTwoFactorCode(
-          user.email,
-          user.username,
-          code,
-        );
+    // 4. MFA enrolled
+    if (mfaState === 'enrolled') {
+      // No code provided: prompt + send email code if needed
+      if (!mfaCode) {
+        if (mfaType === 'EMAIL') {
+          const code = this.mfaService.generateEmailToken(mfaSecret.base32);
+          await this.emailService.sendTwoFactorCode(
+            user.email,
+            user.username,
+            code,
+          );
+        }
+
+        return {
+          status: 'MFA_TOKEN_REQUIRED',
+          mfa_type: mfaType,
+          message: 'Please enter your MFA code to continue.',
+        };
       }
 
-      return {
-        status: 'MFA_TOKEN_REQUIRED',
-        mfa_type: mfaType,
-        message: 'Please enter your MFA code to continue.',
-      };
-    }
-
-    // 5. MFA enrolled and code provided → Final verification and login
-    if (mfaState === 'enrolled' && mfaCode) {
+      // Code provided: verify
       const isVerified = this.mfaService.verifyTOTPCode(
         mfaSecret.base32,
         mfaCode,
       );
+
       if (!isVerified) {
-        throw new UnauthorizedException(
-          'The MFA verification code is incorrect.',
-        );
+        if (mfaType === 'EMAIL') {
+          // Re-send new code if verification fails
+          const newCode = this.mfaService.generateEmailToken(mfaSecret.base32);
+          await this.emailService.sendTwoFactorCode(
+            user.email,
+            user.username,
+            newCode,
+          );
+
+          throw new UnauthorizedException({
+            status: 'MFA_CODE_EXPIRED',
+            message:
+              'The code has expired or is incorrect. A new code has been sent to your email. Please try again with the new code.',
+          });
+        }
+
+        throw new UnauthorizedException({
+          status: 'MFA_VERIFICATION_FAILED',
+          message:
+            'The verification code you entered is incorrect or has expired. Please check your authenticator app and try again.',
+        });
       }
 
+      // Verified successfully
       return this.generateAndReturnTokens(user);
     }
 
