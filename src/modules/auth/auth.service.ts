@@ -8,6 +8,7 @@ import { RegisterDto, LoginDto } from '../../common/dto/auth.dto';
 import { MfaService } from '../mfa/mfa.service';
 import { User } from '../user/user.entity';
 import { EmailService } from 'src/shared/services/email.service';
+import * as jwt from 'jsonwebtoken';
 
 @Injectable()
 export class AuthService {
@@ -203,7 +204,6 @@ export class AuthService {
     if (!storedToken || storedToken !== refreshToken) {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
-    console.log('Refreshing token', userId);
     const user = await this.userService.findById(userId);
     if (!user) throw new UnauthorizedException('User not found');
 
@@ -226,7 +226,7 @@ export class AuthService {
     );
   }
 
-  private generateRefreshToken(userId: string, email: string): string {
+  public generateRefreshToken(userId: string, email: string): string {
     return this.jwtService.sign(
       { userId, email },
       {
@@ -311,5 +311,17 @@ export class AuthService {
       7 * 24 * 60 * 60,
     );
     return { accessToken, refreshToken };
+  }
+
+  verifyRefreshToken(token: string): { userId: string; email: string } {
+    try {
+      const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET) as {
+        userId: string;
+        email: string;
+      };
+      return payload;
+    } catch (err) {
+      throw new UnauthorizedException('Invalid or expired refresh token', err);
+    }
   }
 }

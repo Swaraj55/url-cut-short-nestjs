@@ -1,8 +1,18 @@
-import { Controller, Post, Get, Body, Req, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  UseGuards,
+  Res,
+  Req,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterDto, LoginDto } from '../../common/dto/auth.dto';
 import { JwtAuthGuard } from '../../shared/guard/jwt-auth.guard';
 import { AuthGuard } from '@nestjs/passport';
+import { Response, Request } from 'express';
 
 @Controller('auth')
 export class AuthController {
@@ -14,13 +24,61 @@ export class AuthController {
   }
 
   @Post('login')
-  login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
+  async login(
+    @Body() loginDto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.login(loginDto);
+
+    if ('refreshToken' in result) {
+      const { accessToken, refreshToken } = result;
+
+      res.cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: true, // only true in production
+        sameSite: 'strict',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+
+      return { accessToken };
+    }
+
+    return result;
   }
 
   @Post('refresh-token')
-  refreshToken(@Body() { userId, refreshToken }) {
-    return this.authService.refreshToken(userId, refreshToken);
+  async refreshToken(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const refreshToken = req.cookies['refreshToken'];
+    if (!refreshToken) throw new UnauthorizedException('Refresh token missing');
+
+    const payload = await this.authService.verifyRefreshToken(refreshToken);
+    const newAccessToken = await this.authService.refreshToken(
+      payload.userId,
+      refreshToken,
+    );
+
+    // Optionally rotate refresh token
+    const newRefreshToken = await this.authService.generateRefreshToken(
+      payload.userId,
+      payload.email,
+    );
+
+    // 1. Protecting the Refresh Token from XSS
+    /**
+     * Setting httpOnly: true means JavaScript in the browser cannot access the cookie (e.g., document.cookie).
+     * This protects your refresh token from cross-site scripting (XSS) attacks.
+     */
+    res.cookie('refreshToken', newRefreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return { accessToken: newAccessToken };
   }
 
   @Post('logout')
