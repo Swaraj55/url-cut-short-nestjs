@@ -1,0 +1,8 @@
+| 🧾 Case                                        | ⚙️ Condition                              | 🤖 Behavior                      | 💬 Response Message                                                          |
+|-----------------------------------------------|-------------------------------------------|----------------------------------|------------------------------------------------------------------------------|
+| ❌ MFA not enabled                             | `!mfa` or `mfa.mfa_status !== 'enabled'`  | 🔓 Logs in directly              | 🔑 Returns access & refresh tokens                                          |
+| 🔐 MFA enabled, not enrolled, no code         | `mfa_state === 'unenrolled' && !mfaCode`  | 🏁 Starts enrollment             | 🧩 TOTP: QR code & secret<br>📧 Email: sends verification code               |
+| 🔐 MFA enabled, not enrolled, with code       | `mfa_state === 'unenrolled' && mfaCode`   | ✅ Verifies first MFA code       | 📥 Marks as enrolled, prompts re-login                                      |
+| 🟡 MFA enrolled, no code                      | `mfa_state === 'enrolled' && !mfaCode`    | 🔁 Sends MFA code if Email       | ⌨️ Asks user to provide MFA code                                             |
+| 🟢 MFA enrolled, with code                    | `mfa_state === 'enrolled' && mfaCode`     | 🟩 Verifies and logs in          | 🪪 Returns access & refresh tokens                                          |
+| 🧯 Unexpected MFA state                       | Anything outside expected combinations     | 🛑 Fails safe                     | ⚠️ Throws: "Unexpected MFA state. Please try again."                         |
