@@ -30,37 +30,48 @@ export class AuthService {
 
   async login(loginDto: LoginDto) {
     const { email, password, mfaCode } = loginDto;
+
     const user = await this.userService.findByEmail(email);
-    if (!user) throw new UnauthorizedException('Invalid credentials');
+    if (!user) {
+      throw new UnauthorizedException('Invalid email or password.');
+    }
 
     const isPasswordValid = await HashUtil.comparePasswords(
       password,
       user.password,
     );
-    if (!isPasswordValid)
-      throw new UnauthorizedException('Invalid credentials');
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid email or password.');
+    }
 
     const mfa = user.mfa_details;
     const mfaType = mfa?.mfa_type;
     const mfaState = mfa?.mfa_state;
     const mfaSecret = mfa?.secret;
 
-    // 1. MFA Not Enabled → Login directly
+    // 1. MFA not enabled → Login directly
     if (!mfa || mfa.mfa_status !== 'enabled') {
       return this.generateAndReturnTokens(user);
     }
 
-    // 2. MFA Enabled but not enrolled and no TOTP/email code → Start enrollment
+    // 2. MFA enabled but not enrolled and no code → Start enrollment
     if (mfaState === 'unenrolled' && !mfaCode) {
       const updatedSecret = this.mfaService.generateSecret(
         user.email,
         user.username,
         user._id.toString(),
       );
+
       const updatedDetails = {
         ...mfa,
-        secret: updatedSecret,
+        secret: {
+          ascii: updatedSecret.ascii,
+          hex: updatedSecret.hex,
+          base32: updatedSecret.base32,
+          otpauth_url: updatedSecret.otpauth_url,
+        },
       };
+
       await this.userService.updateMfaDetails(
         user._id.toString(),
         updatedDetails,
@@ -73,13 +84,15 @@ export class AuthService {
         return {
           status: 'MFA_ENROLLMENT_REQUIRED',
           mfa_type: mfaType,
+          message:
+            'Scan the QR code using your authenticator app and enter the verification code.',
           qrCode,
           secret: updatedSecret.base32,
         };
       }
 
       if (mfaType === 'Email') {
-        const code = this.mfaService.generateEmailToken(updatedSecret); // implement this
+        const code = this.mfaService.generateEmailToken(updatedSecret.base32);
         await this.emailService.sendTwoFactorCode(
           user.email,
           user.username,
@@ -88,39 +101,41 @@ export class AuthService {
         return {
           status: 'MFA_ENROLLMENT_REQUIRED',
           mfa_type: mfaType,
-          message: 'Verification code sent to email',
+          message:
+            'A verification code has been sent to your email. Please enter it to complete MFA setup.',
         };
       }
     }
 
-    // 3. MFA Enabled but not enrolled → Verifying first-time code
+    // 3. MFA enabled but not enrolled → Verifying first-time code
     if (mfaState === 'unenrolled' && mfaCode) {
-      const verified = this.mfaService.verifyTOTPCode(
+      const isVerified = this.mfaService.verifyTOTPCode(
         mfaSecret.base32,
         mfaCode,
       );
-      if (!verified) throw new UnauthorizedException('Invalid MFA code');
+      if (!isVerified) {
+        throw new UnauthorizedException(
+          'The MFA verification code is incorrect.',
+        );
+      }
 
-      const updatedDetails = {
+      await this.userService.updateMfaDetails(user._id.toString(), {
         ...mfa,
         mfa_state: 'enrolled',
-      };
-      delete updatedDetails.secret; // Optional: clean it
-      await this.userService.updateMfaDetails(
-        user._id.toString(),
-        updatedDetails,
-      );
+      });
+
       return {
         status: 'MFA_ENROLLMENT_COMPLETE',
-        message: 'MFA enrollment successful. Please login again.',
+        message:
+          'Multi-factor authentication has been successfully set up. Please log in again to continue.',
       };
     }
 
-    // 4. MFA Enrolled but no code → Prompt for token
+    // 4. MFA enrolled but no code provided → Prompt user for code
     if (mfaState === 'enrolled' && !mfaCode) {
       if (mfaType === 'Email') {
         const code = this.mfaService.generateEmailToken(mfaSecret.base32);
-        await this.emailService.sendTwoFactorEnrollment(
+        await this.emailService.sendTwoFactorCode(
           user.email,
           user.username,
           code,
@@ -130,20 +145,27 @@ export class AuthService {
       return {
         status: 'MFA_TOKEN_REQUIRED',
         mfa_type: mfaType,
-        message: 'MFA code required to login',
+        message: 'Please enter your MFA code to continue.',
       };
     }
 
-    // 5. MFA Enrolled and code present → Verify
+    // 5. MFA enrolled and code provided → Final verification and login
     if (mfaState === 'enrolled' && mfaCode) {
-      const verified = this.mfaService.verifyTOTPCode(
+      const isVerified = this.mfaService.verifyTOTPCode(
         mfaSecret.base32,
         mfaCode,
       );
-      if (!verified) throw new UnauthorizedException('Invalid MFA code');
+      if (!isVerified) {
+        throw new UnauthorizedException(
+          'The MFA verification code is incorrect.',
+        );
+      }
 
       return this.generateAndReturnTokens(user);
     }
+
+    // Fallback (should never happen)
+    throw new UnauthorizedException('Unexpected MFA state. Please try again.');
   }
 
   async refreshToken(userId: string, refreshToken: string) {

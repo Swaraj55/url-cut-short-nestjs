@@ -1,16 +1,24 @@
-// src/modules/auth/mfa/mfa.controller.ts
-
-import { Controller, Post, Body, Req, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Req,
+  UseGuards,
+  BadRequestException,
+} from '@nestjs/common';
 import { MfaService } from './mfa.service';
 import { JwtAuthGuard } from 'src/shared/guard/jwt-auth.guard';
 import { UserService } from 'src/modules/user/user.service';
 import { EnableMfaDto } from 'src/common/dto/mfa.dto';
+import * as speakeasy from 'speakeasy';
+import { EmailService } from 'src/shared/services/email.service';
 
 @Controller('mfa')
 export class MfaController {
   constructor(
     private readonly mfaService: MfaService,
     private readonly userService: UserService,
+    private readonly emailService: EmailService,
   ) {}
 
   @Post('enable')
@@ -20,6 +28,36 @@ export class MfaController {
     const user = await this.userService.findById(req.user.userId);
     if (!user) throw new Error('User not found');
 
+    // ❌ Prevent if MFA is already fully enrolled with a different type
+    if (
+      user.mfa_details?.mfa_status === 'enabled' &&
+      user.mfa_details?.mfa_state === 'enrolled' &&
+      user.mfa_details?.mfa_type !== mfa_type
+    ) {
+      throw new BadRequestException(
+        `MFA is already enabled via ${user.mfa_details.mfa_type}. Please disable it before enabling a new method.`,
+      );
+    }
+
+    // 🔁 Reset if previous MFA setup was incomplete with different type
+    if (
+      user.mfa_details?.mfa_status === 'disabled' &&
+      user.mfa_details?.mfa_state === 'pending' &&
+      user.mfa_details?.mfa_type !== mfa_type
+    ) {
+      await this.userService.updateMfaDetails(user._id.toString(), {
+        mfa_status: 'disabled',
+        mfa_state: null,
+        mfa_type: null,
+        secret: null,
+      });
+
+      return {
+        message: `Previous MFA setup using ${user.mfa_details.mfa_type} was incomplete and has been reset. You can now proceed to set up MFA using ${mfa_type}.`,
+      };
+    }
+
+    // 🔐 Enable TOTP
     if (mfa_type === 'TOTP') {
       const secret = this.mfaService.generateSecret(
         user.email,
@@ -40,26 +78,50 @@ export class MfaController {
       });
 
       const qrCode = await this.mfaService.generateQRCode(secret.otpauth_url);
-      return { qrCode, secret: secret.base32 };
+      return {
+        status: 'MFA_SETUP_REQUIRED',
+        mfa_type,
+        qrCode,
+        secret: secret.base32,
+      };
     }
 
+    // 📧 Enable Email-based MFA
     if (mfa_type === 'EMAIL') {
-      // TODO: Implement email code generation & send email here
+      const secret = speakeasy.generateSecret();
+
       await this.userService.updateMfaDetails(user._id.toString(), {
         mfa_status: 'disabled',
         mfa_state: 'pending',
         mfa_type: 'EMAIL',
+        secret: {
+          ascii: secret.ascii,
+          hex: secret.hex,
+          base32: secret.base32,
+          otpauth_url: null,
+        },
       });
 
-      return { message: 'Email MFA initiation is pending implementation' };
+      const emailToken = this.mfaService.generateEmailToken(secret.base32);
+      await this.emailService.sendTwoFactorEnrollment(
+        user.email,
+        user.username,
+        emailToken,
+      );
+
+      return {
+        status: 'MFA_SETUP_REQUIRED',
+        mfa_type,
+        message: 'Verification code sent to your email',
+      };
     }
 
+    // 📵 Not implemented
     if (mfa_type === 'SMS') {
-      // TODO: Implement SMS code generation & sending
       return { message: 'SMS MFA not implemented yet' };
     }
 
-    throw new Error('Unsupported MFA type');
+    throw new BadRequestException('Unsupported MFA type');
   }
 
   @Post('verify')
@@ -70,8 +132,15 @@ export class MfaController {
 
     if (!user || !secret) throw new Error('MFA not enabled');
 
-    const isValid = this.mfaService.verifyTOTPCode(secret.base32, code);
-    if (!isValid) throw new Error('Invalid TOTP code');
+    let isValid = false;
+
+    if (user.mfa_details.mfa_type === 'TOTP') {
+      isValid = this.mfaService.verifyTOTPCode(secret.base32, code);
+    } else if (user.mfa_details.mfa_type === 'EMAIL') {
+      isValid = this.mfaService.verifyTOTPCode(secret.base32, code);
+    }
+
+    if (!isValid) throw new Error('Invalid code');
 
     await this.userService.updateMfaDetails(user._id.toString(), {
       mfa_status: 'enabled',

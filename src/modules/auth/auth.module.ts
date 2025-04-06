@@ -40,11 +40,11 @@ import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handleba
         },
       },
       defaults: {
-        from: '"Your App" <no-reply@yourapp.com>',
+        from: '"URL Shortner" <no-reply@urlshortner.com>',
       },
       template: {
         dir: process.cwd() + '/src/shared/templates',
-        adapter: new HandlebarsAdapter(), // make sure you have this imported
+        adapter: new HandlebarsAdapter(),
         options: {
           strict: true,
         },
