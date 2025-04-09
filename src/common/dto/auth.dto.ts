@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsEnum,
   ValidateIf,
+  IsBoolean,
 } from 'class-validator';
 
 export enum AuthProvider {
@@ -27,20 +28,25 @@ export class RegisterDto {
 
   @IsEnum(AuthProvider)
   @IsOptional()
-  provider?: AuthProvider; // Default to LOCAL if not provided
+  provider?: AuthProvider;
 
   @ValidateIf((dto) => dto.provider !== AuthProvider.LOCAL)
   @IsNotEmpty({ message: 'Provider ID is required for OAuth users' })
   providerId?: string;
 
   @IsOptional()
-  mfaEnabled?: boolean; // Flag for MFA
+  mfaEnabled?: boolean;
 
   @IsOptional()
-  mfaCode?: string; // If MFA is enabled, the user must provide the code
+  mfaCode?: string;
 
   @IsOptional()
   accountCreatedDate?: Date;
+
+  @IsOptional()
+  @IsBoolean()
+  @IsNotEmpty({ message: 'You must agree to the terms and conditions' })
+  agreeToTerms?: boolean;
 }
 
 export class LoginDto {
@@ -55,4 +61,7 @@ export class LoginDto {
 
   @IsOptional()
   mfaCode?: string; // If MFA is enabled, the user must provide the code
+
+  @IsOptional()
+  rememberMe?: boolean;
 }
