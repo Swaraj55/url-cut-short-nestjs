@@ -77,12 +77,11 @@ export class MfaController {
         },
       });
 
-      const qrCode = await this.mfaService.generateQRCode(secret.otpauth_url);
+      // const qrCode = await this.mfaService.generateQRCode(secret.otpauth_url);
       return {
         status: 'MFA_SETUP_REQUIRED',
         mfa_type,
-        qrCode,
-        secret: secret.base32,
+        message: 'MFA of type TOTP is enabled and ready for enrollment.',
       };
     }
 
@@ -102,17 +101,17 @@ export class MfaController {
         },
       });
 
-      const emailToken = this.mfaService.generateEmailToken(secret.base32);
-      await this.emailService.sendTwoFactorEnrollment(
-        user.email,
-        user.username,
-        emailToken,
-      );
+      // const emailToken = this.mfaService.generateEmailToken(secret.base32);
+      // await this.emailService.sendTwoFactorEnrollment(
+      //   user.email,
+      //   user.username,
+      //   emailToken,
+      // );
 
       return {
         status: 'MFA_SETUP_REQUIRED',
         mfa_type,
-        message: 'Verification code sent to your email',
+        message: 'MFA of type EMAIL is enabled and ready for enrollment.',
       };
     }
 

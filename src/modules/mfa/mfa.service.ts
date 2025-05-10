@@ -11,7 +11,7 @@ export class MfaService {
     const otpauth_url = speakeasy.otpauthURL({
       secret: secret.ascii,
       label: `${userId}:${email}`,
-      issuer: username,
+      issuer: 'URL Shortner',
     });
     return { ...secret, otpauth_url };
   }

@@ -29,20 +29,24 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const result = await this.authService.login(loginDto);
-
     if ('refreshToken' in result) {
-      const { accessToken, refreshToken } = result;
+      const { accessToken, refreshToken, user } = result;
+
+      // Remove password if present
+      if (user && 'password' in user) {
+        delete user.password;
+      }
 
       res.cookie('refreshToken', refreshToken, {
         httpOnly: true,
-        secure: true, // only true in production
+        secure: true,
         sameSite: 'strict',
         maxAge: loginDto.rememberMe
-          ? 7 * 24 * 60 * 60 * 1000 // 7 Days
-          : 24 * 60 * 60 * 1000, // 1 day
+          ? 7 * 24 * 60 * 60 * 1000
+          : 24 * 60 * 60 * 1000,
       });
 
-      return { accessToken };
+      return { accessToken, user };
     }
 
     return result;

@@ -63,6 +63,7 @@ export class AuthService {
       return this.generateAndReturnTokens(user);
     }
 
+    console.group(mfa, mfaType, mfaState, mfaSecret, !mfaCode);
     // 2. MFA enabled but not enrolled and no code → Start enrollment
     if (mfaState === 'unenrolled' && !mfaCode) {
       const updatedSecret = this.mfaService.generateSecret(
@@ -102,7 +103,7 @@ export class AuthService {
 
       if (mfaType === 'EMAIL') {
         const code = this.mfaService.generateEmailToken(updatedSecret.base32);
-        await this.emailService.sendTwoFactorCode(
+        await this.emailService.sendTwoFactorEnrollment(
           user.email,
           user.username,
           code,
@@ -118,6 +119,7 @@ export class AuthService {
 
     // 3. MFA enabled but not enrolled → Verifying first-time code
     if (mfaState === 'unenrolled' && mfaCode) {
+      console.log(mfaCode);
       const isVerified = this.mfaService.verifyTOTPCode(
         mfaSecret.base32,
         mfaCode,
@@ -142,11 +144,13 @@ export class AuthService {
         mfa_state: 'enrolled',
       });
 
+      const tokenResponse = await this.generateAndReturnTokens(user);
+
       return {
+        ...tokenResponse,
         status: 'MFA_ENROLLMENT_COMPLETE',
-        message:
-          'Multi-factor authentication has been successfully set up. Please log in again to continue.',
-        nextStep: 'LOGIN_VERIFICATION_REQUIRED',
+        message: 'MFA setup is complete. You have been logged in successfully.',
+        firstTimeMfaEnrollment: true,
       };
     }
 
@@ -319,7 +323,7 @@ export class AuthService {
       refreshToken,
       7 * 24 * 60 * 60,
     );
-    return { accessToken, refreshToken };
+    return { accessToken, refreshToken, user };
   }
 
   verifyRefreshToken(token: string): { userId: string; email: string } {

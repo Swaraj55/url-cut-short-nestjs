@@ -35,7 +35,7 @@ export class UserService {
       // MongoDB duplicate key error
       if (error.code === 11000) {
         throw new ConflictException(
-          'User with this email or username already exists.',
+          'An account with this email already exists. Please try logging in or use a different email.',
         );
       }
 
